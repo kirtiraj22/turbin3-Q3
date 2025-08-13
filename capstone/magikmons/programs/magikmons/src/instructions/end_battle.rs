@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
-
-use crate::{state::*, error::CustomError};
+use crate::{error::CustomError, state::*};
 
 #[derive(Accounts)]
 pub struct EndBattle<'info> {
@@ -10,63 +9,92 @@ pub struct EndBattle<'info> {
     #[account(
         mut,
         seeds = [b"player", signer.key().as_ref()],
-        bump,
+        bump = player_account.bump
     )]
     pub player_account: Account<'info, PlayerAccount>,
 
     #[account(
         mut,
-        seeds = [b"battle", signer.key().as_ref()],
-        bump,
-        // constraint = battle_state.player == signer.key()
+        seeds = [b"battle", signer.key().as_ref(), &[battle_state.npc_id]],
+        bump = battle_state.bump,
+        close = signer
     )]
-    pub battle_state: Account<'info, BattleState>
+    pub battle_state: Account<'info, BattleState>,
+
+    #[account(
+        seeds = [b"config"],
+        bump = game_config.config_bump
+    )]
+    pub game_config: Account<'info, GameConfig>,
 }
 
 impl<'info> EndBattle<'info> {
-    pub fn end_battle(&mut self) -> Result<()>{
-        let player = &mut self.player_account;
-        let battle = &self.battle_state;
+    pub fn end_battle(&mut self) -> Result<()> {
+        require!(
+            self.battle_state.status != BattleStatus::Active,
+            CustomError::BattleStillOngoing
+        );
 
-        require!(battle.status != BattleStatus::Active, CustomError::BattleStillOngoing);
+        let npc_config = self.game_config.get_npc_config(self.battle_state.npc_id)
+            .ok_or(CustomError::InvalidNpcId)?;
 
-        if battle.status == BattleStatus::PlayerLost {
-            msg!("You Lost, No XP awarded.");
-            return Ok(())
+        let active_lineup = self.player_account.active_lineup.clone();
+
+        for (i, lineup_index) in active_lineup.iter().enumerate() {
+            if let (Some(battle_monster), Some(player_monster)) = (
+                self.battle_state.player_monsters.get(i),
+                self.player_account.monsters.get_mut(*lineup_index as usize)
+            ) {
+                player_monster.current_hp = battle_monster.current_hp;
+                player_monster.level = battle_monster.level;
+                player_monster.current_xp = battle_monster.current_xp;
+                player_monster.max_xp = battle_monster.max_xp;
+                player_monster.max_hp = battle_monster.max_hp;
+                player_monster.moves = battle_monster.moves.clone();
+                player_monster.status = battle_monster.status.clone();
+            }
         }
 
-        let npc_id = battle.npc_id;
-        require!(!player.defeated_npcs[npc_id as usize], CustomError::AlreadyDefeated);
+        if self.battle_state.status == BattleStatus::PlayerWon {
+            if let Some(defeated) = self.player_account.defeated_npcs.get_mut(self.battle_state.npc_id as usize) {
+                *defeated = true;
+            }
 
-        if npc_id == 0 || npc_id == 1 {
-            Self::apply_xp(player, &battle.player_monster)?;
+            let player_xp = match npc_config.opponent_type {
+                OpponentType::Trainer => 50,
+                OpponentType::GymLeader => 200,
+            };
+
+            let leveled_up = self.player_account.gain_player_xp(player_xp);
+            if leveled_up {
+                msg!("Player leveled up!");
+            }
+
+            if npc_config.opponent_type == OpponentType::GymLeader {
+                let city_name = match npc_config.city {
+                    CityName::TurbineTown => "turbine",
+                    CityName::SurfpoolCity => "surfcity",
+                    CityName::SolCity => "solcity",
+                    CityName::SuperCity => "supercity",
+                };
+                
+                if !self.player_account.has_badge(city_name) {
+                    self.player_account.badges.push(city_name.to_string());
+                    msg!("Earned {} gym badge!", city_name);
+                }
+            }
+
+            self.player_account.battles_won += 1;
+            msg!("Battle won! Player gained {} XP", player_xp);
+        } else {
+            for monster in &mut self.player_account.monsters {
+                monster.heal_to_full();
+                monster.status = None;
+            }
+            msg!("Battle lost, but monsters are healed for retry!");
         }
 
-        if npc_id == 2 {
-            msg!("GYM Leader Defeated - You can claim NFT!")
-        }
-
-        player.defeated_npcs[npc_id as usize] = true;
-
-        Ok(())
-    }
-
-    fn apply_xp(player: &mut Account<'info, PlayerAccount>, monster: &Monster) -> Result<()> {
-        let mut updated_monster = monster.clone();
-        updated_monster.current_xp += 50;
-
-        if updated_monster.current_xp >= updated_monster.max_xp {
-            updated_monster.level += 1;
-            updated_monster.max_hp += 20;
-            updated_monster.current_hp = updated_monster.max_hp;
-            updated_monster.current_xp = 0;
-            updated_monster.max_xp += 50;
-
-            msg!("Monster leveled up to level {}", updated_monster.level);
-        }
-
-        player.monster = updated_monster;
-        msg!("Awarded 50 XP!");
+        self.player_account.total_battles += 1;
         Ok(())
     }
 }

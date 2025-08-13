@@ -20,6 +20,30 @@ pub enum CustomError {
     #[msg("Monster fainted!")]
     MonsterFainted,
 
-    #[msg("Missing required NFT accounts")]
-    MissingNFTAccounts,
+    #[msg("Must defeat trainers first")]
+    MustDefeatTrainersFirst,
+
+    #[msg("Already has badge for this city")]
+    AlreadyHasBadge,
+
+    #[msg("Insufficient items")]
+    InsufficientItems,
+
+    #[msg("Invalid action")]
+    InvalidAction,
+
+    #[msg("No alive monsters")]
+    NoAliveMonsters,
+
+    #[msg("No active monster")]
+    NoActiveMonster,
+
+    #[msg("Invalid monster index")]
+    InvalidMonsterIndex,
+
+    #[msg("Monster already at full HP")]
+    MonsterAlreadyFullHP,
+
+    #[msg("Already in this city")]
+    AlreadyInCity,
 }

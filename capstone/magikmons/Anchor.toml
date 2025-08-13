@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-magikmons = "Ge6s5GhQV5iG96aX2vWDtSEnvh1oRjC9T5JKaNZVsqQp"
+magikmons = "7drP7t7GV2zfuru8dnKwnj9TRUUZ6mA9pDfMgk6yTrpJ"
 
 [registry]
 url = "https://api.apr.dev"
